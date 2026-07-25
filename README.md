@@ -107,6 +107,40 @@ the host for GPU access; the backend reaches it via `host.docker.internal`.
 
 ---
 
+## Roles & access tiers
+
+Roles are just free-text tags — each company invents whatever fits their org
+(`hr`, `finance`, `partners`, `clinical`, …). They control what the chatbot is
+allowed to **retrieve** for a user, not who can upload (that's the separate
+`is_admin` flag).
+
+- **Document tags** decide who can see a document's content. Tag with specific
+  roles (`hr,finance`) to restrict it; leave **untagged** to make it public to
+  every authenticated user.
+- **A user with no roles is a `customer`** — the least-privileged tier. They see
+  only public (untagged) documents plus anything explicitly tagged `customer`.
+  They never see staff-tagged content. (The default role name is configurable
+  via `DEFAULT_ROLE`.)
+- **Admins** (`is_admin`) can upload/delete documents, manage users, and bypass
+  ACL filtering.
+
+> To keep something away from customers, tag it with a staff role. Untagged ==
+> public by design, so don't upload sensitive files without a tag.
+
+---
+
+## Testing the access-control model
+
+1. Upload `salaries.pdf` tagged `finance`, and `handbook.pdf` tagged `hr`.
+2. Log in with roles `hr` (uncheck Admin) → ask about salaries → the model has no
+   finance chunks to answer from.
+3. Log in with roles `finance` → the same question now returns an answer with a
+   citation. The chunks were filtered in SQL; the LLM never saw the other file.
+4. Log in with **no roles** (customer tier) → you see neither file, only public
+   (untagged) documents. This is the least-privileged default.
+
+---
+
 ## Project structure
 
 ```
@@ -145,8 +179,8 @@ On-Prem-LLM-KnowledgeBase/
 - [x] Dev role-based auth + JWT
 - [x] Chat UI with streaming answers and citations
 - [x] Admin document upload with per-role access tags
+- [x] Customer default tier for users with no roles (least privilege)
 - [ ] Google OAuth login
-- [ ] Customer default tier for users with no roles
 - [ ] Auto-map Workspace groups → roles (Admin SDK, needs domain-wide delegation)
 - [ ] Google Drive sync (watch a shared folder, auto-ingest changes)
 - [ ] Audit logging (who asked what, which chunks were returned)
