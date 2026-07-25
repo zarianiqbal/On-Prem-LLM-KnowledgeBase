@@ -1,10 +1,11 @@
 """Lightweight tests that don't need Postgres, Ollama, or the embedding model."""
+import asyncio
 from types import SimpleNamespace
 
 from app import auth
 from app.config import settings
 from app.ingest import chunk_text
-from app.ollama_client import build_prompt
+from app.ollama_client import build_prompt, generate_answer
 from app.retrieval import RetrievedChunk, effective_roles
 
 
@@ -57,3 +58,26 @@ def test_build_prompt_handles_no_chunks():
 def test_effective_roles_defaults_to_customer_when_empty():
     assert effective_roles([]) == [settings.default_role]
     assert effective_roles(["hr"]) == ["hr"]
+
+
+def test_mock_llm_echoes_accessible_sources(monkeypatch):
+    monkeypatch.setattr(settings, "llm_provider", "mock")
+    chunks = [
+        RetrievedChunk(
+            document_id=1,
+            filename="handbook.pdf",
+            chunk_index=0,
+            content="Vacation is 20 days per year.",
+            score=0.88,
+        )
+    ]
+    answer = asyncio.run(generate_answer("How much vacation?", chunks))
+    assert "Demo mode" in answer
+    assert "handbook.pdf" in answer
+
+
+def test_mock_llm_handles_no_accessible_chunks(monkeypatch):
+    monkeypatch.setattr(settings, "llm_provider", "mock")
+    answer = asyncio.run(generate_answer("anything", []))
+    assert "Demo mode" in answer
+    assert "No documents you have access to matched" in answer
