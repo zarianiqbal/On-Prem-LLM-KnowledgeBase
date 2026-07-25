@@ -1,8 +1,13 @@
-"""LLM client: talks to a local Ollama server.
+"""LLM client: talks to a local Ollama server, or returns canned demo output.
 
 Ollama runs on your own GPU and never sends data off the machine. We only ever
 send it the retrieved (ACL-filtered) chunks plus the user's question.
+
+Set LLM_PROVIDER=mock to run the whole app without Ollama or a GPU — useful for
+testing the pipeline (retrieval, ACL filtering, streaming UI, citations) on a
+machine that can't run a real model.
 """
+import asyncio
 from collections.abc import AsyncIterator
 
 import httpx
@@ -35,6 +40,18 @@ def build_prompt(query: str, chunks: list[RetrievedChunk]) -> str:
 
 
 async def stream_answer(query: str, chunks: list[RetrievedChunk]) -> AsyncIterator[str]:
+    """Stream the answer token-by-token, from Ollama or the mock provider."""
+    if settings.llm_provider == "mock":
+        gen = _stream_mock(query, chunks)
+    else:
+        gen = _stream_ollama(query, chunks)
+    async for token in gen:
+        yield token
+
+
+async def _stream_ollama(
+    query: str, chunks: list[RetrievedChunk]
+) -> AsyncIterator[str]:
     """Stream the model's answer token-by-token from a local Ollama server."""
     payload = {
         "model": settings.ollama_model,
@@ -57,6 +74,31 @@ async def stream_answer(query: str, chunks: list[RetrievedChunk]) -> AsyncIterat
                     yield token
                 if data.get("done"):
                     break
+
+
+async def _stream_mock(query: str, chunks: list[RetrievedChunk]) -> AsyncIterator[str]:
+    """Canned, streamed demo answer — no LLM required.
+
+    Echoes the ACL-filtered chunks so the output visibly proves retrieval and
+    access control worked (the answer only ever references sources the user is
+    allowed to see). Streams word-by-word to exercise the frontend typing effect.
+    """
+    if chunks:
+        sources = ", ".join(dict.fromkeys(c.filename for c in chunks))
+        text = (
+            f"🧪 Demo mode (no live LLM). I found {len(chunks)} passage(s) you "
+            f'have access to for "{query}". Sources: {sources}. '
+            f"Top match says: {chunks[0].content[:200]}"
+        )
+    else:
+        text = (
+            f"🧪 Demo mode (no live LLM). No documents you have access to matched "
+            f'"{query}". A real model would say it doesn\'t have that information.'
+        )
+
+    for i, word in enumerate(text.split(" ")):
+        yield word if i == 0 else " " + word
+        await asyncio.sleep(0.03)
 
 
 async def generate_answer(query: str, chunks: list[RetrievedChunk]) -> str:
