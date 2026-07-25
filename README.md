@@ -127,6 +127,37 @@ allowed to **retrieve** for a user, not who can upload (that's the separate
 > To keep something away from customers, tag it with a staff role. Untagged ==
 > public by design, so don't upload sensitive files without a tag.
 
+## Sign in with Google (optional)
+
+Out of the box the app uses **dev login** (pick an email + roles) so you can
+build and test immediately. To enable real Google sign-in:
+
+1. In [Google Cloud Console](https://console.cloud.google.com), create a project.
+2. **APIs & Services → OAuth consent screen:**
+   - **Have a Google Workspace domain?** Choose **Internal** — login is limited to
+     your own domain and skips Google's app-verification review.
+   - **Using a personal Gmail (for testing)?** Choose **External**, leave the app
+     in **Testing** mode, and add your Gmail under **Test users**. This is free and
+     needs no verification — perfect for MVP testing. (You'd only need Internal or
+     full verification when deploying for a real company later.)
+3. **Credentials → Create Credentials → OAuth client ID → Web application.** Add
+   an authorized redirect URI: `http://localhost:8000/api/auth/google/callback`
+   (use your real backend URL in production).
+4. Copy the **Client ID** and **Client secret** into `.env`:
+   ```env
+   GOOGLE_CLIENT_ID=...
+   GOOGLE_CLIENT_SECRET=...
+   ADMIN_EMAILS=you@yourcompany.com   # bootstrap: auto-granted admin on login
+   DEV_AUTH_ENABLED=false             # turn off dev login in production
+   ```
+5. Restart the backend. The login page now shows **Sign in with Google**.
+
+**How roles get assigned:** Google login only reads a user's email + name (no
+Drive access, no group reads). New users arrive with no roles (customer tier).
+An admin assigns roles from the **Admin → Users** panel. The `ADMIN_EMAILS` list
+solves the bootstrap problem — those emails become admins on first login, so
+there's always a way in on a fresh install.
+
 ---
 
 ## Testing the access-control model
@@ -179,8 +210,8 @@ On-Prem-LLM-KnowledgeBase/
 - [x] Dev role-based auth + JWT
 - [x] Chat UI with streaming answers and citations
 - [x] Admin document upload with per-role access tags
+- [x] Google OAuth login (email + name) with admin role assignment
 - [x] Customer default tier for users with no roles (least privilege)
-- [ ] Google OAuth login
 - [ ] Auto-map Workspace groups → roles (Admin SDK, needs domain-wide delegation)
 - [ ] Google Drive sync (watch a shared folder, auto-ingest changes)
 - [ ] Audit logging (who asked what, which chunks were returned)
