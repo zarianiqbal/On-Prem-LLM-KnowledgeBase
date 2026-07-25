@@ -1,0 +1,48 @@
+# Spins up Postgres (with pgvector) and the backend API.
+#
+# Ollama is NOT containerized here — it runs directly on your machine so it has
+# native GPU access. Install it from https://ollama.com and run `ollama serve`.
+#
+#   docker compose up        # start everything
+#   docker compose up db      # just the database (run backend natively)
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: kb_user
+      POSTGRES_PASSWORD: kb_password
+      POSTGRES_DB: knowledge_base
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kb_user -d knowledge_base"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Inside the compose network, Postgres is reachable at host "db".
+      DATABASE_URL: postgresql+psycopg2://kb_user:kb_password@db:5432/knowledge_base
+      # Reach Ollama running on the host machine from inside the container.
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5173}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8000:8000"
+    volumes:
+      # Cache the downloaded embedding model between restarts.
+      - hf_cache:/root/.cache/huggingface
+
+volumes:
+  pgdata:
+  hf_cache:
