@@ -61,8 +61,11 @@ A document flows through: **parse (PDF/DOCX/txt) → chunk → embed → store w
   ollama pull llama3.1
   ollama serve            # runs the API at http://localhost:11434
   ```
+  **Don't have a GPU, or just testing the app?** Skip Ollama entirely and set
+  `LLM_PROVIDER=mock` in `.env` — see [Demo mode](#demo-mode-no-ollama--no-gpu).
 - **Postgres with pgvector** — easiest via Docker (below). No Docker? Install
-  Postgres natively and add the pgvector extension.
+  Postgres natively and add the pgvector extension. (Required even in demo mode —
+  it stores documents and vectors, and runs fine on CPU.)
 
 ---
 
@@ -104,6 +107,18 @@ tag it with roles (e.g. `hr`), then head to **Chat** and ask a question.
 
 `docker compose up` starts both Postgres and the backend. Ollama still runs on
 the host for GPU access; the backend reaches it via `host.docker.internal`.
+
+### Demo mode (no Ollama / no GPU)
+
+To test that the *app* works without installing Ollama or having a GPU, set:
+```env
+LLM_PROVIDER=mock
+```
+The backend then returns canned, streamed "answers" instead of calling a model.
+The mock output echoes the retrieved sources, so it still proves the security
+model works — e.g. an `hr` user's answer only ever references `hr`-accessible
+documents. You still need Postgres and the embedding model (both run on CPU); only
+the LLM is faked. Switch back to `LLM_PROVIDER=ollama` for real answers.
 
 ---
 
