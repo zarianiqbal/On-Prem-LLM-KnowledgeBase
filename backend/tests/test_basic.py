@@ -2,7 +2,7 @@
 import asyncio
 from types import SimpleNamespace
 
-from app import auth
+from app import audit, auth
 from app.config import settings
 from app.ingest import chunk_text
 from app.ollama_client import build_prompt, generate_answer
@@ -81,3 +81,54 @@ def test_mock_llm_handles_no_accessible_chunks(monkeypatch):
     answer = asyncio.run(generate_answer("anything", []))
     assert "Demo mode" in answer
     assert "No documents you have access to matched" in answer
+
+
+class _FakeDB:
+    """Minimal stand-in for a SQLAlchemy Session so audit tests need no DB."""
+
+    def __init__(self, fail: bool = False):
+        self.added = []
+        self.committed = False
+        self.rolled_back = False
+        self._fail = fail
+
+    def add(self, obj):
+        self.added.append(obj)
+
+    def commit(self):
+        if self._fail:
+            raise RuntimeError("db unavailable")
+        self.committed = True
+
+    def rollback(self):
+        self.rolled_back = True
+
+
+def test_record_audit_persists_entry_with_expected_fields():
+    db = _FakeDB()
+    entry = audit.record_audit(
+        db,
+        actor_email="hr@example.com",
+        actor_roles=["hr"],
+        action=audit.ACTION_QUERY,
+        query="How much vacation?",
+        document_ids=[7],
+        document_names=["handbook.pdf"],
+        num_results=1,
+    )
+    assert db.committed is True
+    assert db.added == [entry]
+    assert entry.action == "query"
+    assert entry.actor_email == "hr@example.com"
+    assert entry.document_names == ["handbook.pdf"]
+    assert entry.num_results == 1
+
+
+def test_record_audit_swallows_db_errors():
+    db = _FakeDB(fail=True)
+    # A failing audit write must not raise — the user's request comes first.
+    audit.record_audit(
+        db, actor_email="a@example.com", actor_roles=[], action=audit.ACTION_QUERY
+    )
+    assert db.committed is False
+    assert db.rolled_back is True
