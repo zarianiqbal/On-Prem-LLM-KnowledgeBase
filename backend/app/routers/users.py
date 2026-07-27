@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app import auth
+from app.audit import ACTION_ROLE_CHANGE, record_audit
 from app.database import get_db
 from app.models import User
 from app.schemas import UserAdminOut, UserUpdate
@@ -42,8 +43,19 @@ def update_user(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cannot remove the last admin.",
             )
+    old_roles, old_admin = list(user.roles), user.is_admin
     user.roles = [r.strip() for r in payload.roles if r.strip()]
     user.is_admin = payload.is_admin
     db.commit()
     db.refresh(user)
+    record_audit(
+        db,
+        actor_email=current.email,
+        actor_roles=current.roles,
+        action=ACTION_ROLE_CHANGE,
+        detail=(
+            f"Updated {user.email}: roles {old_roles or '[]'} -> {user.roles or '[]'}, "
+            f"admin {old_admin} -> {user.is_admin}"
+        ),
+    )
     return user
