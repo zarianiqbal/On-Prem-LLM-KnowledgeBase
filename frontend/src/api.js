@@ -77,6 +77,16 @@ export async function updateUser(id, { roles, is_admin }) {
   return data;
 }
 
+// ---- Audit log (admin) ----
+export async function listAuditLogs({ action, actorEmail, limit } = {}) {
+  const params = {};
+  if (action) params.action = action;
+  if (actorEmail) params.actor_email = actorEmail;
+  if (limit) params.limit = limit;
+  const { data } = await api.get("/audit", { params });
+  return data;
+}
+
 export async function listDocuments() {
   const { data } = await api.get("/documents");
   return data;
