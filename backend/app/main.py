@@ -7,7 +7,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import settings
 from app.database import init_db
-from app.routers import auth, chat, documents, users
+from app.routers import audit, auth, chat, documents, users
 
 
 @asynccontextmanager
@@ -40,6 +40,7 @@ app.include_router(auth.router)
 app.include_router(documents.router)
 app.include_router(chat.router)
 app.include_router(users.router)
+app.include_router(audit.router)
 
 
 @app.get("/api/health", tags=["health"])
