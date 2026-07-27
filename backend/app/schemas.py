@@ -85,3 +85,20 @@ class Citation(BaseModel):
 class AskResponse(BaseModel):
     answer: str
     citations: list[Citation]
+
+
+# ---- Audit log (admin) ----
+class AuditLogOut(BaseModel):
+    id: int
+    created_at: datetime
+    actor_email: str
+    actor_roles: list[str]
+    action: str
+    detail: str
+    query: str | None
+    document_ids: list[int]
+    document_names: list[str]
+    num_results: int | None
+
+    class Config:
+        from_attributes = True
