@@ -68,3 +68,34 @@ class Chunk(Base):
     embedding: Mapped[list[float]] = mapped_column(Vector(settings.embedding_dim))
 
     document: Mapped["Document"] = relationship(back_populates="chunks")
+
+
+class AuditLog(Base):
+    """An append-only record of every security-relevant action.
+
+    The important case is a `query`: we record which ACL-filtered documents were
+    returned to the asking user, so an admin can later prove the access boundary
+    held — a user only ever saw documents their roles permit.
+    """
+
+    __tablename__ = "audit_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, index=True
+    )
+    # Who performed the action, and the roles they held at that moment (roles can
+    # change over time, so we snapshot them here rather than joining to users).
+    actor_email: Mapped[str] = mapped_column(String(320), index=True)
+    actor_roles: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
+    # One of the ACTION_* constants in app/audit.py.
+    action: Mapped[str] = mapped_column(String(32), index=True)
+    # Human-readable summary, e.g. "Uploaded 'handbook.pdf' (hr), 12 chunks".
+    detail: Mapped[str] = mapped_column(Text, default="")
+    # The question asked (query actions only).
+    query: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Documents involved: the chunks returned for a query, or the doc up/deleted.
+    document_ids: Mapped[list[int]] = mapped_column(ARRAY(Integer), default=list)
+    document_names: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
+    # How many chunks a query returned (null for non-query actions).
+    num_results: Mapped[int | None] = mapped_column(Integer, nullable=True)
