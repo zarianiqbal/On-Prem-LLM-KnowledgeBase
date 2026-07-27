@@ -187,6 +187,26 @@ there's always a way in on a fresh install.
 
 ---
 
+## Audit log
+
+Every security-relevant action is written to an append-only `audit_logs` table
+and viewable by admins under **Admin → Audit log** (or `GET /api/audit`):
+
+| Action        | What's recorded                                               |
+| ------------- | ------------------------------------------------------------- |
+| `query`       | The question, the asker's roles, and **which ACL-filtered documents were returned** |
+| `upload`      | The document, its role tags, and chunk count                  |
+| `delete`      | The document removed                                          |
+| `role_change` | The target user and their before/after roles + admin flag     |
+
+The `query` records are the point: because retrieval is ACL-filtered in SQL, a
+query logged with **zero documents returned** is positive evidence that the
+access boundary held — the user asked, but nothing they weren't allowed to see
+was ever retrieved or sent to the LLM. Audit writes are best-effort and never
+block or fail the underlying request.
+
+---
+
 ## Project structure
 
 ```
@@ -196,7 +216,7 @@ On-Prem-LLM-KnowledgeBase/
 │   │   ├── main.py            # FastAPI app + route wiring
 │   │   ├── config.py          # settings from .env
 │   │   ├── database.py        # engine, session, pgvector init
-│   │   ├── models.py          # User / Document / Chunk (+ ACL column)
+│   │   ├── models.py          # User / Document / Chunk / AuditLog (+ ACL column)
 │   │   ├── schemas.py         # request/response models
 │   │   ├── auth.py            # JWT + current-user dependency + user upsert
 │   │   ├── oauth.py           # Google OAuth client (Authlib)
@@ -204,7 +224,8 @@ On-Prem-LLM-KnowledgeBase/
 │   │   ├── ingest.py          # parse → chunk → embed → store
 │   │   ├── retrieval.py       # ACL-filtered vector search  ← security core
 │   │   ├── ollama_client.py   # prompt building + streaming
-│   │   └── routers/           # auth, documents, chat, users endpoints
+│   │   ├── audit.py           # append-only audit-log writer
+│   │   └── routers/           # auth, documents, chat, users, audit endpoints
 │   ├── tests/
 │   ├── requirements.txt
 │   └── Dockerfile
@@ -229,7 +250,7 @@ On-Prem-LLM-KnowledgeBase/
 - [x] Customer default tier for users with no roles (least privilege)
 - [ ] Auto-map Workspace groups → roles (Admin SDK, needs domain-wide delegation)
 - [ ] Google Drive sync (watch a shared folder, auto-ingest changes)
-- [ ] Audit logging (who asked what, which chunks were returned)
+- [x] Audit logging (who asked what, which chunks were returned)
 - [ ] Prompt-injection hardening + rate limiting + HTTPS via Nginx
 
 ## Security notes
