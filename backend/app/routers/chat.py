@@ -7,6 +7,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app import auth
+from app.audit import ACTION_QUERY, record_audit
 from app.database import get_db
 from app.ollama_client import generate_answer, stream_answer
 from app.retrieval import RetrievedChunk, retrieve
@@ -28,6 +29,25 @@ def _citations(chunks: list[RetrievedChunk]) -> list[Citation]:
     ]
 
 
+def _audit_query(
+    db: Session, current: auth.CurrentUser, query: str, chunks: list[RetrievedChunk]
+) -> None:
+    """Record which ACL-filtered documents this query was allowed to retrieve."""
+    doc_ids = list(dict.fromkeys(c.document_id for c in chunks))
+    doc_names = list(dict.fromkeys(c.filename for c in chunks))
+    record_audit(
+        db,
+        actor_email=current.email,
+        actor_roles=current.roles,
+        action=ACTION_QUERY,
+        query=query,
+        document_ids=doc_ids,
+        document_names=doc_names,
+        num_results=len(chunks),
+        detail=f"Retrieved {len(chunks)} chunk(s) from {len(doc_names)} document(s)",
+    )
+
+
 @router.post("/ask", response_model=AskResponse)
 async def ask(
     payload: AskRequest,
@@ -43,6 +63,7 @@ async def ask(
         is_admin=current.is_admin,
         top_k=payload.top_k,
     )
+    _audit_query(db, current, payload.query, chunks)
     answer = await generate_answer(payload.query, chunks)
     return AskResponse(answer=answer, citations=_citations(chunks))
 
@@ -67,6 +88,9 @@ async def ask_stream(
         is_admin=current.is_admin,
         top_k=payload.top_k,
     )
+    # Audit the retrieval now (we already know what was returned) rather than
+    # after streaming, so the record exists even if the client disconnects.
+    _audit_query(db, current, payload.query, chunks)
 
     async def event_stream():
         citations = [c.model_dump() for c in _citations(chunks)]
