@@ -4,6 +4,7 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
 from app import auth
+from app.audit import ACTION_DELETE, ACTION_UPLOAD, record_audit
 from app.database import get_db
 from app.ingest import UnsupportedFileType, ingest_document
 from app.models import Document
@@ -43,6 +44,18 @@ async def ingest(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
 
+    record_audit(
+        db,
+        actor_email=current.email,
+        actor_roles=current.roles,
+        action=ACTION_UPLOAD,
+        document_ids=[document.id],
+        document_names=[document.filename],
+        detail=(
+            f"Uploaded '{document.filename}' "
+            f"({', '.join(roles) or 'everyone'}), {document.num_chunks} chunks"
+        ),
+    )
     return IngestResponse(
         document=DocumentOut.model_validate(document),
         chunks_created=document.num_chunks,
@@ -76,5 +89,16 @@ def delete_document(
     doc = db.get(Document, document_id)
     if doc is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    # Capture identity before the row is gone, for the audit record.
+    deleted_id, deleted_name = doc.id, doc.filename
     db.delete(doc)  # chunks cascade-delete
     db.commit()
+    record_audit(
+        db,
+        actor_email=current.email,
+        actor_roles=current.roles,
+        action=ACTION_DELETE,
+        document_ids=[deleted_id],
+        document_names=[deleted_name],
+        detail=f"Deleted '{deleted_name}'",
+    )
