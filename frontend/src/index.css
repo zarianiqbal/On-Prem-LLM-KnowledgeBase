@@ -315,3 +315,59 @@ label.checkbox input {
   border-top: 1px solid var(--border);
   vertical-align: middle;
 }
+
+/* ---- Audit log ---- */
+.audit-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.audit-head select {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+.audit-table td {
+  vertical-align: top;
+  padding: 10px 12px 10px 0;
+}
+.nowrap {
+  white-space: nowrap;
+}
+.audit-query {
+  font-style: italic;
+}
+.blocked {
+  color: var(--danger);
+}
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--muted);
+}
+.badge-query {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.badge-upload {
+  color: #3fb950;
+  border-color: #3fb950;
+}
+.badge-delete {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.badge-role_change {
+  color: #d29922;
+  border-color: #d29922;
+}

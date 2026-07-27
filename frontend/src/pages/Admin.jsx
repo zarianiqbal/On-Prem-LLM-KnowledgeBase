@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   deleteDocument,
+  listAuditLogs,
   listDocuments,
   listUsers,
   updateUser,
@@ -111,6 +112,8 @@ export default function Admin({ user }) {
       </div>
 
       <UsersPanel currentEmail={user?.email} />
+
+      <AuditPanel />
     </div>
   );
 }
@@ -215,5 +218,86 @@ function UserRow({ user, isSelf, onSave }) {
         </button>
       </td>
     </tr>
+  );
+}
+
+// The audit trail: who asked what, and which ACL-filtered documents were
+// returned. A `query` row with zero documents is proof the access boundary held
+// — the user asked, but nothing they weren't allowed to see was retrieved.
+const ACTIONS = [
+  { value: "", label: "All actions" },
+  { value: "query", label: "Queries" },
+  { value: "upload", label: "Uploads" },
+  { value: "delete", label: "Deletes" },
+  { value: "role_change", label: "Role changes" },
+];
+
+function AuditPanel() {
+  const [logs, setLogs] = useState([]);
+  const [action, setAction] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    listAuditLogs({ action: action || undefined, limit: 200 })
+      .then((rows) => !cancelled && setLogs(rows))
+      .catch((err) =>
+        !cancelled && setError(err?.response?.data?.detail || err.message)
+      );
+    return () => {
+      cancelled = true;
+    };
+  }, [action]);
+
+  return (
+    <div className="card">
+      <div className="audit-head">
+        <h2>Audit log ({logs.length})</h2>
+        <select value={action} onChange={(e) => setAction(e.target.value)}>
+          {ACTIONS.map((a) => (
+            <option key={a.value} value={a.value}>
+              {a.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <p className="muted">
+        An append-only record of every retrieval and change. For a query, the
+        documents column shows exactly what the asker was allowed to see — a
+        query returning nothing is evidence the access boundary held.
+      </p>
+      {error && <div className="error">{error}</div>}
+      {logs.length === 0 && !error && <p className="muted">No activity yet.</p>}
+      <table className="doc-table audit-table">
+        <tbody>
+          {logs.map((l) => (
+            <tr key={l.id}>
+              <td className="muted small nowrap">
+                {new Date(l.created_at).toLocaleString()}
+              </td>
+              <td>
+                <span className={`badge badge-${l.action}`}>{l.action}</span>
+              </td>
+              <td>
+                <strong>{l.actor_email}</strong>
+                <div className="muted small">
+                  {l.actor_roles.length ? l.actor_roles.join(", ") : "customer"}
+                </div>
+              </td>
+              <td>
+                {l.query && <div className="audit-query">“{l.query}”</div>}
+                <div className="muted small">{l.detail}</div>
+                {l.document_names.length > 0 && (
+                  <div className="small">📄 {l.document_names.join(", ")}</div>
+                )}
+                {l.action === "query" && l.num_results === 0 && (
+                  <div className="small blocked">no documents returned</div>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
