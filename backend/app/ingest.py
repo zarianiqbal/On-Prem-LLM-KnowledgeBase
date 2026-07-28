@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.embeddings import embed_texts
 from app.models import Chunk, Document
+from app.security import scan_for_injection
 
 
 class UnsupportedFileType(Exception):
@@ -57,12 +58,19 @@ def ingest_document(
     data: bytes,
     allowed_roles: list[str],
     uploaded_by: str,
-) -> Document:
-    """Run the full pipeline and persist the document + its chunks."""
+) -> tuple[Document, list[str]]:
+    """Run the full pipeline and persist the document + its chunks.
+
+    Returns the stored document and a list of prompt-injection warnings (names
+    of suspicious patterns found in the text; empty if the document looks clean).
+    The document is ingested either way — the warnings are advisory.
+    """
     text = extract_text(filename, content_type, data)
     chunks = chunk_text(text)
     if not chunks:
         raise ValueError("No extractable text found in the document.")
+
+    warnings = scan_for_injection(text) if settings.injection_scan_enabled else []
 
     vectors = embed_texts(chunks)
 
@@ -89,4 +97,4 @@ def ingest_document(
 
     db.commit()
     db.refresh(document)
-    return document
+    return document, warnings

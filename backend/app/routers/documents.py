@@ -30,7 +30,7 @@ async def ingest(
     data = await file.read()
     try:
         # Parsing + embedding is CPU-bound, so run it off the event loop.
-        document = await run_in_threadpool(
+        document, warnings = await run_in_threadpool(
             ingest_document,
             db,
             filename=file.filename,
@@ -44,6 +44,12 @@ async def ingest(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
 
+    detail = (
+        f"Uploaded '{document.filename}' "
+        f"({', '.join(roles) or 'everyone'}), {document.num_chunks} chunks"
+    )
+    if warnings:
+        detail += f" — ⚠ possible prompt injection: {', '.join(warnings)}"
     record_audit(
         db,
         actor_email=current.email,
@@ -51,14 +57,12 @@ async def ingest(
         action=ACTION_UPLOAD,
         document_ids=[document.id],
         document_names=[document.filename],
-        detail=(
-            f"Uploaded '{document.filename}' "
-            f"({', '.join(roles) or 'everyone'}), {document.num_chunks} chunks"
-        ),
+        detail=detail,
     )
     return IngestResponse(
         document=DocumentOut.model_validate(document),
         chunks_created=document.num_chunks,
+        warnings=warnings,
     )
 
 

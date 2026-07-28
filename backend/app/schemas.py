@@ -66,6 +66,9 @@ class DocumentOut(BaseModel):
 class IngestResponse(BaseModel):
     document: DocumentOut
     chunks_created: int
+    # Prompt-injection patterns detected in the document (empty if it looks
+    # clean). The document is still ingested; this is an advisory warning.
+    warnings: list[str] = Field(default_factory=list)
 
 
 # ---- Chat / RAG ----
