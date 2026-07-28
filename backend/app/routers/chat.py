@@ -8,12 +8,19 @@ from sqlalchemy.orm import Session
 
 from app import auth
 from app.audit import ACTION_QUERY, record_audit
+from app.config import settings
 from app.database import get_db
 from app.ollama_client import generate_answer, stream_answer
+from app.ratelimit import rate_limit_user
 from app.retrieval import RetrievedChunk, retrieve
 from app.schemas import AskRequest, AskResponse, Citation
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
+
+# Per-user limit on the expensive retrieval+generation path.
+_chat_rate_limit = rate_limit_user(
+    "chat", settings.chat_rate_limit, settings.chat_rate_window
+)
 
 
 def _citations(chunks: list[RetrievedChunk]) -> list[Citation]:
@@ -53,6 +60,7 @@ async def ask(
     payload: AskRequest,
     current: auth.CurrentUser = Depends(auth.get_current_user),
     db: Session = Depends(get_db),
+    _rl: None = Depends(_chat_rate_limit),
 ):
     """Answer a question over the ACL-filtered knowledge base (non-streaming)."""
     chunks = await run_in_threadpool(
@@ -73,6 +81,7 @@ async def ask_stream(
     payload: AskRequest,
     current: auth.CurrentUser = Depends(auth.get_current_user),
     db: Session = Depends(get_db),
+    _rl: None = Depends(_chat_rate_limit),
 ):
     """Streaming variant. Emits newline-delimited JSON events:
 
