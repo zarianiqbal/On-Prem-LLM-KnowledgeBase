@@ -45,6 +45,19 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1"
 
+    # --- Abuse hardening ---
+    # Scan uploaded documents for prompt-injection phrases and flag suspicious
+    # ones (they're still ingested, just recorded in the audit log as a warning).
+    injection_scan_enabled: bool = True
+
+    # In-memory sliding-window rate limiting. Keyed per user for chat and per IP
+    # for login. Single-process only (fine for the local/self-hosted MVP).
+    rate_limit_enabled: bool = True
+    chat_rate_limit: int = 20  # max chat questions ...
+    chat_rate_window: int = 60  # ... per this many seconds, per user
+    login_rate_limit: int = 10  # max dev-login attempts ...
+    login_rate_window: int = 60  # ... per this many seconds, per IP
+
     # CORS
     frontend_origin: str = "http://localhost:5173"
 
