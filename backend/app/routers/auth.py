@@ -7,13 +7,23 @@ from app import auth
 from app.config import settings
 from app.database import get_db
 from app.oauth import oauth
+from app.ratelimit import rate_limit_ip
 from app.schemas import AuthConfig, DevLoginRequest, TokenResponse, UserOut
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
+# Per-IP limit to blunt brute-forcing of the dev-login endpoint.
+_login_rate_limit = rate_limit_ip(
+    "login", settings.login_rate_limit, settings.login_rate_window
+)
+
 
 @router.post("/dev-login", response_model=TokenResponse)
-def dev_login(payload: DevLoginRequest, db: Session = Depends(get_db)):
+def dev_login(
+    payload: DevLoginRequest,
+    db: Session = Depends(get_db),
+    _rl: None = Depends(_login_rate_limit),
+):
     """Log in by choosing an email + roles. For local development only.
 
     Disabled when DEV_AUTH_ENABLED=false so it can't leak into production.
