@@ -22,18 +22,26 @@ def test_chunk_text_empty():
     assert chunk_text("   ") == []
 
 
-def test_jwt_roundtrip_preserves_roles():
+def test_jwt_roundtrip_preserves_claims():
     user = SimpleNamespace(
         email="bob@example.com", name="Bob", roles=["hr", "finance"], is_admin=False
     )
     token = auth.create_access_token(user)
 
-    creds = SimpleNamespace(credentials=token)
-    current = auth.get_current_user(credentials=creds)
+    # Authorization no longer trusts the token's roles (they're re-read from the
+    # DB per request), but the token must still round-trip its claims intact.
+    payload = auth.decode_access_token(token)
+    assert payload["sub"] == "bob@example.com"
+    assert payload["roles"] == ["hr", "finance"]
+    assert payload["is_admin"] is False
 
-    assert current.email == "bob@example.com"
-    assert current.roles == ["hr", "finance"]
-    assert current.is_admin is False
+
+def test_decode_access_token_rejects_tampered_token():
+    import pytest
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException):
+        auth.decode_access_token("not.a.jwt")
 
 
 def test_build_prompt_includes_context_and_injection_guard():
@@ -189,3 +197,61 @@ def test_rate_limiter_keys_are_independent():
     # Alice is now at her limit, but Bob is unaffected.
     assert limiter.check("alice", limit=1, window=60)[0] is False
     assert limiter.check("bob", limit=1, window=60)[0] is True
+
+
+def test_rate_limiter_evicts_idle_keys():
+    from app import ratelimit
+
+    clock = [0.0]
+    limiter = SlidingWindowLimiter(clock=lambda: clock[0])
+    # Touch enough distinct keys to trigger at least one sweep.
+    for i in range(ratelimit._SWEEP_EVERY + 50):
+        limiter.check(f"user{i}", limit=5, window=60)
+    # Jump far past the idle TTL, then drive more checks so a sweep runs.
+    clock[0] = ratelimit._IDLE_TTL + 10_000
+    for _ in range(ratelimit._SWEEP_EVERY):
+        limiter.check("still_active", limit=5, window=60)
+    # The thousands of one-off keys should be gone; only active keys remain.
+    assert len(limiter._hits) < 10
+
+
+# ---- Config: production safety guard ----
+def test_production_safety_flags_default_secret_and_dev_auth(monkeypatch):
+    from app.config import DEFAULT_JWT_SECRET
+
+    monkeypatch.setattr(settings, "environment", "production")
+    monkeypatch.setattr(settings, "jwt_secret", DEFAULT_JWT_SECRET)
+    monkeypatch.setattr(settings, "dev_auth_enabled", True)
+    errors = settings.production_safety_errors()
+    assert len(errors) == 2
+    assert any("JWT_SECRET" in e for e in errors)
+    assert any("DEV_AUTH_ENABLED" in e for e in errors)
+
+
+def test_production_safety_passes_when_configured(monkeypatch):
+    monkeypatch.setattr(settings, "environment", "production")
+    monkeypatch.setattr(settings, "jwt_secret", "a-real-long-random-secret")
+    monkeypatch.setattr(settings, "dev_auth_enabled", False)
+    assert settings.production_safety_errors() == []
+
+
+def test_production_safety_is_lenient_in_development(monkeypatch):
+    # Default dev config is intentionally convenient; no guard should fire.
+    monkeypatch.setattr(settings, "environment", "development")
+    monkeypatch.setattr(settings, "dev_auth_enabled", True)
+    assert settings.production_safety_errors() == []
+
+
+# ---- Chat: query validation ----
+def test_clean_query_rejects_empty_and_oversized(monkeypatch):
+    import pytest
+    from fastapi import HTTPException
+
+    from app.routers.chat import _clean_query
+
+    assert _clean_query("  hello  ") == "hello"
+    with pytest.raises(HTTPException):
+        _clean_query("   ")
+    monkeypatch.setattr(settings, "max_query_chars", 10)
+    with pytest.raises(HTTPException):
+        _clean_query("x" * 11)
