@@ -100,6 +100,13 @@ export async function uploadDocument(file, allowedRoles) {
   return data;
 }
 
+// Re-tag a document's allowed roles after upload. `roles` is an array of strings
+// (empty = visible to everyone).
+export async function updateDocument(id, roles) {
+  const { data } = await api.patch(`/documents/${id}`, { allowed_roles: roles });
+  return data;
+}
+
 export async function deleteDocument(id) {
   await api.delete(`/documents/${id}`);
 }
