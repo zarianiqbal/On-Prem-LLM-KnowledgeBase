@@ -63,6 +63,12 @@ class DocumentOut(BaseModel):
         from_attributes = True
 
 
+class DocumentUpdate(BaseModel):
+    """Change which roles may see a document (re-tagging after upload)."""
+
+    allowed_roles: list[str] = Field(default_factory=list)
+
+
 class IngestResponse(BaseModel):
     document: DocumentOut
     chunks_created: int

@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 ACTION_QUERY = "query"
 ACTION_UPLOAD = "upload"
 ACTION_DELETE = "delete"
+ACTION_RETAG = "retag"
 ACTION_ROLE_CHANGE = "role_change"
 
 
