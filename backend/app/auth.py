@@ -1,12 +1,16 @@
 """Authentication: JWT issuance/verification and the current-user dependency.
 
-The JWT carries the user's email and roles. Every protected request extracts
-those roles and passes them to the retrieval layer for ACL filtering, so the
-LLM only ever sees chunks the requesting user is allowed to see.
+The JWT identifies *who* the user is (their email). Their roles and admin flag
+are re-read from the database on every request, so changes an admin makes —
+assigning/revoking a role, granting/removing admin, or deleting the account —
+take effect immediately, without waiting for the token to expire. (The token
+still carries a roles snapshot for debugging, but it is never trusted for
+authorization.) Retrieval then filters on those live roles, so the LLM only ever
+sees chunks the requesting user is currently allowed to see.
 
 Dev mode (`DEV_AUTH_ENABLED=true`) lets you log in by simply choosing a role —
-no Google account required — so you can build and test locally. Swap in real
-Google OAuth for production (see `login_google` stub below).
+no Google account required — so you can build and test locally. Google OAuth is
+the path for real users (see the routers/auth.py callback flow).
 """
 from datetime import datetime, timedelta, timezone
 
@@ -46,6 +50,7 @@ def upsert_user(
     db: Session, email: str, name: str, roles: list[str], is_admin: bool
 ) -> User:
     """Create the user if new, otherwise update their profile/roles."""
+    email = email.lower()
     user = db.query(User).filter(User.email == email).first()
     if user is None:
         user = User(email=email, name=name, roles=roles, is_admin=is_admin)
@@ -82,20 +87,11 @@ def get_or_create_oauth_user(db: Session, email: str, name: str) -> User:
     return user
 
 
-def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-) -> CurrentUser:
-    if credentials is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+def decode_access_token(token: str) -> dict:
+    """Verify a JWT's signature/expiry and return its claims. Raises 401 if bad."""
     try:
-        payload = jwt.decode(
-            credentials.credentials,
-            settings.jwt_secret,
-            algorithms=[settings.jwt_algorithm],
+        return jwt.decode(
+            token, settings.jwt_secret, algorithms=[settings.jwt_algorithm]
         )
     except JWTError:
         raise HTTPException(
@@ -103,11 +99,35 @@ def get_current_user(
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> CurrentUser:
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    payload = decode_access_token(credentials.credentials)
+    email = (payload.get("sub") or "").lower()
+    # Roles/admin come from the DB, not the token, so permission changes are
+    # enforced on the very next request rather than after re-login.
+    user = db.query(User).filter(User.email == email).first()
+    if user is None:
+        # The account was deleted (or never existed) after the token was issued.
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Account no longer exists",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return CurrentUser(
-        email=payload.get("sub", ""),
-        name=payload.get("name", ""),
-        roles=payload.get("roles", []) or [],
-        is_admin=payload.get("is_admin", False),
+        email=user.email,
+        name=user.name,
+        roles=list(user.roles or []),
+        is_admin=user.is_admin,
     )
 
 
