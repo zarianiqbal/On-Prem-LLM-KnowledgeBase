@@ -145,7 +145,8 @@ allowed to **retrieve** for a user, not who can upload (that's the separate
   They never see staff-tagged content. (The default role name is configurable
   via `DEFAULT_ROLE`.)
 - **Admins** (`is_admin`) can upload/delete documents, manage users, and bypass
-  ACL filtering.
+  ACL filtering. They can also **re-tag** a document's roles after upload from
+  the Admin page — the change is applied to every chunk immediately.
 
 > To keep something away from customers, tag it with a staff role. Untagged ==
 > public by design, so don't upload sensitive files without a tag.
@@ -213,6 +214,7 @@ and viewable by admins under **Admin → Audit log** (or `GET /api/audit`):
 | ------------- | ------------------------------------------------------------- |
 | `query`       | The question, the asker's roles, and **which ACL-filtered documents were returned** |
 | `upload`      | The document, its role tags, and chunk count                  |
+| `retag`       | A document's access roles being changed (before → after)      |
 | `delete`      | The document removed                                          |
 | `role_change` | The target user and their before/after roles + admin flag     |
 
@@ -242,9 +244,15 @@ Two layers guard against misuse, both configurable in `.env`:
 **Rate limiting.** An in-memory sliding-window limiter (`app/ratelimit.py`) caps
 abuse without an external dependency: chat questions are limited **per user**
 (default 20/min) and login attempts **per IP** (default 10/min). Exceeding a
-limit returns HTTP 429 with a `Retry-After` header. It's single-process (fine
-for the local/self-hosted MVP); a multi-node deployment would back it with Redis
-behind the same interface.
+limit returns HTTP 429 with a `Retry-After` header. Idle keys are periodically
+swept so memory tracks active users, not everyone ever seen. It's single-process
+(fine for the local/self-hosted MVP); a multi-node deployment would back it with
+Redis behind the same interface.
+
+**Request limits.** Oversized or empty requests are rejected before doing any
+work: chat questions over `MAX_QUERY_CHARS` and uploads over `MAX_UPLOAD_MB`
+return HTTP 413, and a client-supplied `top_k` is clamped to
+`MAX_RETRIEVAL_TOP_K` so no single request can exhaust resources.
 
 ---
 
@@ -295,14 +303,28 @@ On-Prem-LLM-KnowledgeBase/
 - [ ] Google Drive sync (watch a shared folder, auto-ingest changes)
 - [x] Audit logging (who asked what, which chunks were returned)
 - [x] Prompt-injection scanning + delimiter hardening + rate limiting
+- [x] Immediate permission enforcement (roles re-read from DB per request)
+- [x] Production-config safety guard + request size/rate limits
+- [x] Re-tag document access roles after upload
+- [ ] Invite-only / approval-gated signup (new users start with zero access)
 - [ ] HTTPS via Nginx / reverse proxy for production deployment
 
 ## Security notes
 
 - Never commit `.env`. Generate a strong `JWT_SECRET`
   (`python -c "import secrets; print(secrets.token_hex(32))"`).
-- Set `DEV_AUTH_ENABLED=false` in production once Google OAuth is wired up —
-  otherwise anyone can mint a token with any role.
+- **Production config is enforced at startup.** With `ENVIRONMENT=production`, the
+  app refuses to boot if `JWT_SECRET` is still the default (tokens would be
+  forgeable) or if `DEV_AUTH_ENABLED=true` (dev-login lets any caller mint a
+  token and self-assign admin). This turns two silent, catastrophic
+  misconfigurations into a loud startup failure.
+- **Permission changes take effect immediately.** The JWT only identifies *who*
+  a user is; their roles and admin flag are re-read from the database on every
+  request. Revoking a role, removing admin, or deleting an account cuts off
+  access on the user's very next call — no waiting for the token to expire.
+- **Request limits.** Chat questions are capped at `MAX_QUERY_CHARS`, uploads at
+  `MAX_UPLOAD_MB`, and a client-supplied `top_k` is clamped to
+  `MAX_RETRIEVAL_TOP_K`, so a single request can't exhaust resources.
 - The system prompt instructs the model to treat retrieved context as data, not
   commands, as a first line of defense against prompt injection in documents.
 - **Known limitation — no approval gate on signup.** Any successful login
