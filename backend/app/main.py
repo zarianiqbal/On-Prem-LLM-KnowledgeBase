@@ -12,6 +12,13 @@ from app.routers import audit, auth, chat, documents, users
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Fail fast on unsafe production config rather than booting a vulnerable app.
+    errors = settings.production_safety_errors()
+    if errors:
+        raise RuntimeError(
+            "Refusing to start with unsafe production config:\n- "
+            + "\n- ".join(errors)
+        )
     # Create the pgvector extension + tables on startup.
     init_db()
     yield
