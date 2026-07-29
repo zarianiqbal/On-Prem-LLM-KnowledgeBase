@@ -4,6 +4,7 @@ import {
   listAuditLogs,
   listDocuments,
   listUsers,
+  updateDocument,
   updateUser,
   uploadDocument,
 } from "../api";
@@ -49,6 +50,15 @@ export default function Admin({ user }) {
     await refresh();
   }
 
+  async function handleRetag(doc, rolesText) {
+    const roles = rolesText
+      .split(",")
+      .map((r) => r.trim())
+      .filter(Boolean);
+    await updateDocument(doc.id, roles);
+    await refresh();
+  }
+
   return (
     <div className="admin">
       <div className="card">
@@ -83,29 +93,20 @@ export default function Admin({ user }) {
 
       <div className="card">
         <h2>Documents ({docs.length})</h2>
+        <p className="muted">
+          Edit a document's roles to change who can see it — the change applies to
+          all of its chunks immediately. Blank = visible to everyone.
+        </p>
         {docs.length === 0 && <p className="muted">No documents yet.</p>}
         <table className="doc-table">
           <tbody>
             {docs.map((d) => (
-              <tr key={d.id}>
-                <td>
-                  <strong>{d.filename}</strong>
-                  <div className="muted small">
-                    {d.num_chunks} chunks ·{" "}
-                    {d.allowed_roles.length
-                      ? d.allowed_roles.join(", ")
-                      : "everyone"}
-                  </div>
-                </td>
-                <td className="right">
-                  <button
-                    className="btn-danger"
-                    onClick={() => handleDelete(d.id)}
-                  >
-                    Delete
-                  </button>
-                </td>
-              </tr>
+              <DocRow
+                key={d.id}
+                doc={d}
+                onRetag={handleRetag}
+                onDelete={handleDelete}
+              />
             ))}
           </tbody>
         </table>
@@ -115,6 +116,46 @@ export default function Admin({ user }) {
 
       <AuditPanel />
     </div>
+  );
+}
+
+// One document row: editable role tags (re-tag) plus delete.
+function DocRow({ doc, onRetag, onDelete }) {
+  const [roles, setRoles] = useState(doc.allowed_roles.join(", "));
+  const [busy, setBusy] = useState(false);
+  const dirty = roles !== doc.allowed_roles.join(", ");
+
+  async function save() {
+    setBusy(true);
+    try {
+      await onRetag(doc, roles);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <tr>
+      <td>
+        <strong>{doc.filename}</strong>
+        <div className="muted small">{doc.num_chunks} chunks</div>
+      </td>
+      <td>
+        <input
+          value={roles}
+          onChange={(e) => setRoles(e.target.value)}
+          placeholder="everyone"
+        />
+      </td>
+      <td className="right">
+        <button className="btn-primary" disabled={!dirty || busy} onClick={save}>
+          {busy ? "…" : "Save"}
+        </button>{" "}
+        <button className="btn-danger" onClick={() => onDelete(doc.id)}>
+          Delete
+        </button>
+      </td>
+    </tr>
   );
 }
 
@@ -228,6 +269,7 @@ const ACTIONS = [
   { value: "", label: "All actions" },
   { value: "query", label: "Queries" },
   { value: "upload", label: "Uploads" },
+  { value: "retag", label: "Re-tags" },
   { value: "delete", label: "Deletes" },
   { value: "role_change", label: "Role changes" },
 ];

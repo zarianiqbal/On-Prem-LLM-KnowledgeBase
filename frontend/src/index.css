@@ -367,6 +367,10 @@ label.checkbox input {
   color: var(--danger);
   border-color: var(--danger);
 }
+.badge-retag {
+  color: #a371f7;
+  border-color: #a371f7;
+}
 .badge-role_change {
   color: #d29922;
   border-color: #d29922;
