@@ -7,11 +7,20 @@ from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# The placeholder shipped in .env.example. Running in production with this value
+# means anyone could forge tokens, so startup refuses it (see Settings below).
+DEFAULT_JWT_SECRET = "change-me-to-a-long-random-string"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
+
+    # "development" (default) or "production". In production the app refuses to
+    # start with unsafe config (default secret, dev-login left on) — see
+    # production_safety_errors().
+    environment: str = "development"
 
     # Database
     database_url: str = (
@@ -19,7 +28,7 @@ class Settings(BaseSettings):
     )
 
     # Auth / JWT
-    jwt_secret: str = "change-me-to-a-long-random-string"
+    jwt_secret: str = DEFAULT_JWT_SECRET
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 720
     dev_auth_enabled: bool = True
@@ -32,6 +41,13 @@ class Settings(BaseSettings):
     chunk_size: int = 512
     chunk_overlap: int = 50
     retrieval_top_k: int = 5
+    # Hard ceiling on the client-supplied top_k, so a caller can't ask for a
+    # huge number of chunks and blow up the prompt / DB work.
+    max_retrieval_top_k: int = 20
+
+    # --- Request limits (abuse / resource guards) ---
+    max_upload_mb: int = 25  # reject uploads larger than this
+    max_query_chars: int = 4000  # reject chat questions longer than this
 
     # Role given to any authenticated user who has no roles assigned. This is the
     # least-privileged tier (e.g. external customers): they see only public
@@ -78,6 +94,27 @@ class Settings(BaseSettings):
     @property
     def google_oauth_enabled(self) -> bool:
         return bool(self.google_client_id and self.google_client_secret)
+
+    def production_safety_errors(self) -> list[str]:
+        """Config that is unsafe to run in production. Empty list == safe.
+
+        Checked at startup so a misconfigured deploy fails loudly instead of
+        silently exposing a forgeable-token or self-serve-admin backdoor.
+        """
+        if self.environment.strip().lower() != "production":
+            return []
+        errors: list[str] = []
+        if self.jwt_secret == DEFAULT_JWT_SECRET:
+            errors.append(
+                "JWT_SECRET is still the default value — set a strong random secret "
+                '(python -c "import secrets; print(secrets.token_hex(32))").'
+            )
+        if self.dev_auth_enabled:
+            errors.append(
+                "DEV_AUTH_ENABLED must be false in production — dev-login lets any "
+                "caller mint a token and self-assign admin."
+            )
+        return errors
 
 
 @lru_cache
