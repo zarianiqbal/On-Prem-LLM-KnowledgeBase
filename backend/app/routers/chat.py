@@ -1,7 +1,7 @@
 """Chat / RAG routes: ACL-filtered retrieval + Ollama generation."""
 import json
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -21,6 +21,22 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 _chat_rate_limit = rate_limit_user(
     "chat", settings.chat_rate_limit, settings.chat_rate_window
 )
+
+
+def _clean_query(raw: str) -> str:
+    """Reject empty or oversized questions before doing any embedding work."""
+    q = (raw or "").strip()
+    if not q:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Query must not be empty.",
+        )
+    if len(q) > settings.max_query_chars:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Query too long (max {settings.max_query_chars} characters).",
+        )
+    return q
 
 
 def _citations(chunks: list[RetrievedChunk]) -> list[Citation]:
@@ -63,16 +79,17 @@ async def ask(
     _rl: None = Depends(_chat_rate_limit),
 ):
     """Answer a question over the ACL-filtered knowledge base (non-streaming)."""
+    query = _clean_query(payload.query)
     chunks = await run_in_threadpool(
         retrieve,
         db,
-        payload.query,
+        query,
         roles=current.roles,
         is_admin=current.is_admin,
         top_k=payload.top_k,
     )
-    _audit_query(db, current, payload.query, chunks)
-    answer = await generate_answer(payload.query, chunks)
+    _audit_query(db, current, query, chunks)
+    answer = await generate_answer(query, chunks)
     return AskResponse(answer=answer, citations=_citations(chunks))
 
 
@@ -89,22 +106,23 @@ async def ask_stream(
     {"type":"token","data":"..."}       -> one per token
     {"type":"done"}                      -> end of stream
     """
+    query = _clean_query(payload.query)
     chunks = await run_in_threadpool(
         retrieve,
         db,
-        payload.query,
+        query,
         roles=current.roles,
         is_admin=current.is_admin,
         top_k=payload.top_k,
     )
     # Audit the retrieval now (we already know what was returned) rather than
     # after streaming, so the record exists even if the client disconnects.
-    _audit_query(db, current, payload.query, chunks)
+    _audit_query(db, current, query, chunks)
 
     async def event_stream():
         citations = [c.model_dump() for c in _citations(chunks)]
         yield json.dumps({"type": "citations", "data": citations}) + "\n"
-        async for token in stream_answer(payload.query, chunks):
+        async for token in stream_answer(query, chunks):
             yield json.dumps({"type": "token", "data": token}) + "\n"
         yield json.dumps({"type": "done"}) + "\n"
 
