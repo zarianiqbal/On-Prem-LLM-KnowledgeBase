@@ -38,7 +38,10 @@ def retrieve(
     top_k: int | None = None,
 ) -> list[RetrievedChunk]:
     """Return the top_k most similar chunks the user is allowed to see."""
+    # Clamp the client-supplied top_k into a sane range so a caller can't request
+    # an enormous number of chunks (huge prompt / DB scan) or a non-positive one.
     k = top_k or settings.retrieval_top_k
+    k = max(1, min(k, settings.max_retrieval_top_k))
     query_vector = embed_text(query)
     distance = Chunk.embedding.cosine_distance(query_vector)
 
