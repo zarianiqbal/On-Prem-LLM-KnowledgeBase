@@ -11,6 +11,14 @@ hardware — documents, embeddings, and the LLM never leave the machine.
 > the LLM is involved — so a user in `hr` can never trigger retrieval of
 > `finance`-tagged content.
 
+**Deployment model:** this is single-tenant — each company deploys and runs its
+own instance (own database, own `.env`, own `ADMIN_EMAILS`), not one shared
+server for many companies. If Company B wants to use this, they stand up their
+own copy and configure their own bootstrap admin; they never log into Company
+A's instance. (A shared multi-tenant SaaS — one server hosting many companies
+with data isolation between them — is a different, larger architecture that
+isn't built here.)
+
 ---
 
 ## How it works
@@ -49,7 +57,7 @@ A document flows through: **parse (PDF/DOCX/txt) → chunk → embed → store w
 | Vector store | Postgres + [pgvector](https://github.com/pgvector/pgvector)|
 | Embeddings   | `sentence-transformers` (`all-MiniLM-L6-v2`, 384-dim)      |
 | LLM          | [Ollama](https://ollama.com) (e.g. Llama 3.1) — local GPU |
-| Auth         | JWT; dev role-login now, Google OAuth stub for production  |
+| Auth         | JWT; dev role-login for local testing, Google OAuth for real users |
 
 ---
 
@@ -149,12 +157,21 @@ build and test immediately. To enable real Google sign-in:
 
 1. In [Google Cloud Console](https://console.cloud.google.com), create a project.
 2. **APIs & Services → OAuth consent screen:**
-   - **Have a Google Workspace domain?** Choose **Internal** — login is limited to
-     your own domain and skips Google's app-verification review.
+   - **Have a Google Workspace domain and only need employees to log in?**
+     Choose **Internal** — login is limited to your own domain and skips
+     Google's app-verification review.
    - **Using a personal Gmail (for testing)?** Choose **External**, leave the app
      in **Testing** mode, and add your Gmail under **Test users**. This is free and
-     needs no verification — perfect for MVP testing. (You'd only need Internal or
-     full verification when deploying for a real company later.)
+     needs no verification — perfect for MVP testing.
+   - **Need both employees *and* external customers to sign in?** Internal
+     won't work — it blocks anyone outside your Workspace domain, which
+     includes every customer. You need **External**, moved out of Testing into
+     **Published**. Beyond 100 test users (or to remove the "unverified app"
+     warning), Google requires an app-verification review before real external
+     users can sign in at scale. Since this app only requests the minimal
+     email/profile scope, verification is typically fast — but it's still a
+     required step you should plan for before launch, not something to
+     discover after.
 3. **Credentials → Create Credentials → OAuth client ID → Web application.** Add
    an authorized redirect URI: `http://localhost:8000/api/auth/google/callback`
    (use your real backend URL in production).
@@ -288,6 +305,15 @@ On-Prem-LLM-KnowledgeBase/
   otherwise anyone can mint a token with any role.
 - The system prompt instructs the model to treat retrieved context as data, not
   commands, as a first line of defense against prompt injection in documents.
+- **Known limitation — no approval gate on signup.** Any successful login
+  (Google or dev-login) immediately grants customer-tier access to every
+  public/untagged document — there's no admin-approval step before a new
+  account can see anything. This is fine when login itself is already
+  restricted (e.g. Workspace-Internal, or a small OAuth Testing test-user
+  list), but matters more once **External** OAuth is published to real
+  customers. A good next step: an invite-only or pending-approval signup flow
+  where new accounts have zero access (not even public docs) until an admin
+  approves them.
 
 ## License
 
