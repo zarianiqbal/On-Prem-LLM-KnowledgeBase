@@ -19,6 +19,12 @@ from fastapi import Depends, HTTPException, Request, status
 from app import auth
 from app.config import settings
 
+# Periodically drop keys nobody has touched recently so memory tracks *active*
+# users, not every user/IP ever seen. The idle TTL is far larger than any real
+# window, so a still-relevant key is never evicted.
+_SWEEP_EVERY = 500  # run a sweep at most once per this many checks
+_IDLE_TTL = 3600.0  # seconds a key can sit untouched before it's reclaimed
+
 
 class SlidingWindowLimiter:
     """Tracks a timestamp log per key and allows up to `limit` hits per `window`."""
@@ -27,12 +33,17 @@ class SlidingWindowLimiter:
         self._clock = clock
         self._hits: dict[str, deque[float]] = defaultdict(deque)
         self._lock = threading.Lock()
+        self._checks_since_sweep = 0
 
     def check(self, key: str, limit: int, window: float) -> tuple[bool, float]:
         """Record a hit for `key`. Returns (allowed, retry_after_seconds)."""
         now = self._clock()
         cutoff = now - window
         with self._lock:
+            self._checks_since_sweep += 1
+            if self._checks_since_sweep >= _SWEEP_EVERY:
+                self._checks_since_sweep = 0
+                self._sweep(now)
             hits = self._hits[key]
             while hits and hits[0] <= cutoff:
                 hits.popleft()
@@ -41,6 +52,14 @@ class SlidingWindowLimiter:
                 return False, max(hits[0] + window - now, 0.0)
             hits.append(now)
             return True, 0.0
+
+    def _sweep(self, now: float) -> None:
+        """Evict keys idle for longer than the TTL. Caller must hold the lock."""
+        stale_before = now - _IDLE_TTL
+        for key in list(self._hits):
+            hits = self._hits[key]
+            if not hits or hits[-1] <= stale_before:
+                del self._hits[key]
 
 
 # Shared limiter for the whole process. Scoped keys (e.g. "chat:alice@x.com")
