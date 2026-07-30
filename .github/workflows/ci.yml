@@ -1,0 +1,82 @@
+name: CI
+
+# Run the test suite and a production frontend build on every push and PR.
+# This only validates the code — it changes no app behavior and touches nothing
+# outside the repo.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+
+    # Real Postgres + pgvector so the ACL integration test runs for real instead
+    # of skipping. Matches the DATABASE_URL / docker-compose defaults.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: kb_user
+          POSTGRES_PASSWORD: kb_password
+          POSTGRES_DB: knowledge_base
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kb_user -d knowledge_base"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql+psycopg2://kb_user:kb_password@localhost:5432/knowledge_base
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Initialize database schema
+        # Creates the pgvector extension + tables so the integration test has a
+        # schema to work against.
+        run: python -c "from app.database import init_db; init_db()"
+
+      - name: Run tests
+        run: python -m pytest tests/ -q
+
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
