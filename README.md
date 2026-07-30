@@ -132,6 +132,46 @@ the LLM is faked. Switch back to `LLM_PROVIDER=ollama` for real answers.
 
 ---
 
+## Production deployment
+
+The Quick start above is for local development (`--reload`, `npm run dev`,
+plaintext localhost). For a real deployment there's a separate production stack —
+`docker-compose.prod.yml` — that runs three services: Postgres, the backend API,
+and **nginx serving the built frontend and proxying `/api` to the backend**. Since
+everything is one origin, there's no CORS to configure, and uploads up to
+`MAX_UPLOAD_MB` pass through the proxy.
+
+1. **Point a domain** at the server that will host this (HTTPS below needs it).
+2. **Configure secrets:**
+   ```bash
+   cp .env.production.example .env.production   # then edit the values
+   ```
+   Set a strong `JWT_SECRET` and `POSTGRES_PASSWORD`, your Google OAuth
+   credentials (with `GOOGLE_REDIRECT_URI` and `FRONTEND_ORIGIN` pointing at your
+   real domain), and `ADMIN_EMAILS` for the bootstrap admin.
+3. **Start the stack:**
+   ```bash
+   docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+   ```
+   The compose file forces `ENVIRONMENT=production` and `DEV_AUTH_ENABLED=false`,
+   so the backend's startup guard refuses to boot with an unsafe config (default
+   `JWT_SECRET`, or dev-login left on). The app is served on port 80.
+
+**Still your responsibility (not built into the stack):**
+
+- **HTTPS.** Put a TLS-terminating reverse proxy (e.g. [Caddy](https://caddyserver.com),
+  which does automatic Let's Encrypt certs) in front of the frontend. Port 80 is
+  plaintext until you do.
+- **Database backups.** Schedule `pg_dump` of the `db` service to durable storage
+  off the DB's own disk. Nothing backs it up automatically.
+- **Monitoring** and a **log-retention policy** for the audit log (it grows
+  unbounded).
+
+Ollama still runs on the host for GPU access (or set `LLM_PROVIDER=mock` to run
+the stack without it).
+
+---
+
 ## Roles & access tiers
 
 Roles are just free-text tags — each company invents whatever fits their org
@@ -283,11 +323,14 @@ On-Prem-LLM-KnowledgeBase/
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/                  # React + Vite app
-│   └── src/
-│       ├── api.js             # axios client + streaming helper
-│       ├── App.jsx            # routing + auth state
-│       └── pages/             # Login, Chat, Admin
-├── docker-compose.yml         # Postgres (pgvector) + backend
+│   ├── src/
+│   │   ├── api.js             # axios client + streaming helper
+│   │   ├── App.jsx            # routing + auth state
+│   │   └── pages/             # Login, Chat, Admin
+│   ├── Dockerfile             # build SPA → serve via nginx (production)
+│   └── nginx.conf             # static serving + /api proxy + SPA fallback
+├── docker-compose.yml         # dev: Postgres (pgvector) + backend
+├── docker-compose.prod.yml    # prod: db + backend + nginx frontend
 └── README.md
 ```
 
@@ -309,7 +352,8 @@ On-Prem-LLM-KnowledgeBase/
 - [x] Production-config safety guard + request size/rate limits
 - [x] Re-tag document access roles after upload
 - [x] CI (GitHub Actions): tests against real Postgres + pgvector, frontend build
-- [ ] HTTPS via Nginx / reverse proxy for production deployment
+- [x] Production Docker stack (nginx frontend + API + db, prod-safe config)
+- [ ] HTTPS via TLS reverse proxy (e.g. Caddy) in front of the stack
 
 ## Security notes
 
