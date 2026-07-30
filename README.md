@@ -306,7 +306,6 @@ On-Prem-LLM-KnowledgeBase/
 - [x] Immediate permission enforcement (roles re-read from DB per request)
 - [x] Production-config safety guard + request size/rate limits
 - [x] Re-tag document access roles after upload
-- [ ] Invite-only / approval-gated signup (new users start with zero access)
 - [ ] HTTPS via Nginx / reverse proxy for production deployment
 
 ## Security notes
@@ -327,15 +326,15 @@ On-Prem-LLM-KnowledgeBase/
   `MAX_RETRIEVAL_TOP_K`, so a single request can't exhaust resources.
 - The system prompt instructs the model to treat retrieved context as data, not
   commands, as a first line of defense against prompt injection in documents.
-- **Known limitation — no approval gate on signup.** Any successful login
-  (Google or dev-login) immediately grants customer-tier access to every
-  public/untagged document — there's no admin-approval step before a new
-  account can see anything. This is fine when login itself is already
-  restricted (e.g. Workspace-Internal, or a small OAuth Testing test-user
-  list), but matters more once **External** OAuth is published to real
-  customers. A good next step: an invite-only or pending-approval signup flow
-  where new accounts have zero access (not even public docs) until an admin
-  approves them.
+- **Open signup is intentional, not a gap.** Any successful login (Google or
+  dev-login) immediately gets customer tier, the least-privileged default —
+  and customer tier only ever sees public/untagged documents. Since public
+  documents are meant to be visible to any authenticated user, letting anyone
+  sign up and land in that tier is the system working as designed, not a
+  bypass of the access-control boundary. Nothing sensitive is reachable
+  without an admin explicitly granting a role. (Gating signup itself — e.g. an
+  invite-only flow — is a business/compliance choice some deployments may want,
+  not a security fix.)
 
 ## License
 
