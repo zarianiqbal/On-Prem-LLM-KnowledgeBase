@@ -1,5 +1,7 @@
 # On-Prem LLM Knowledge Base
 
+[![CI](https://github.com/zarianiqbal/On-Prem-LLM-KnowledgeBase/actions/workflows/ci.yml/badge.svg)](https://github.com/zarianiqbal/On-Prem-LLM-KnowledgeBase/actions/workflows/ci.yml)
+
 A privacy-first, self-hosted RAG (Retrieval-Augmented Generation) knowledge base.
 Employees ask questions in natural language and get answers drawn **only** from
 company documents their role is allowed to see. Everything runs on your own
@@ -306,6 +308,7 @@ On-Prem-LLM-KnowledgeBase/
 - [x] Immediate permission enforcement (roles re-read from DB per request)
 - [x] Production-config safety guard + request size/rate limits
 - [x] Re-tag document access roles after upload
+- [x] CI (GitHub Actions): tests against real Postgres + pgvector, frontend build
 - [ ] HTTPS via Nginx / reverse proxy for production deployment
 
 ## Security notes
